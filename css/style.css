@@ -1,0 +1,111 @@
+/* css/style.css */
+
+/* Bootstrap CSS custom property overrides */
+:root {
+  --font-heading: 'Source Serif 4', Georgia, serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+  --clr-header-bg:  #1e3a6e;
+  --clr-page-bg:   #dde3ec;
+  --clr-panel-bg:  #f7f8fa;
+  --clr-panel-border: #c8cdd8;
+  --clr-blue: #2456b4;
+  --clr-list-active: #0d6efd;
+  --clr-status-bg: #e2e3e5;
+  --clr-status-text: #41464b;
+  --header-h: 60px;
+  --statusbar-h: 40px;
+  --radius-lg: 0.5rem;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--clr-page-bg);
+  height: 100vh;
+  margin: 0;
+}
+
+h1, h2, h3, h4, h5, h6, .profile-hero-name {
+  font-family: var(--font-heading);
+}
+
+/* Application wrapper: full-height flex column layout */
+#app-wrapper {
+  height: calc(100% - var(--header-h));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Panel card styling */
+.sn-panel {
+  background:     var(--clr-panel-bg);
+  border:         1px solid var(--clr-panel-border);
+  border-radius:  var(--radius-lg);
+  padding:        1rem 1.1rem;
+  flex: 1;  
+  min-height: 0;  
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Profile picture circular display */
+#profile-pic, .profile-thumb {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  margin: 0 auto;
+}
+
+/* Profile picture hover effect */
+#profile-pic:hover {
+  transform:  scale(1.05);
+  transition: transform 0.2s ease;
+}
+
+/* Lists */
+.profile-list-box, .sn-textbox--tall {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Profile list items */
+.profile-item {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--clr-panel-border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-item:hover {
+  background-color: #e9ecef;
+}
+
+/* Active profile highlight in left panel */
+#profile-list .profile-item.active {
+  background: var(--clr-list-active);
+  border-color: var(--clr-blue);
+  color: #ffffff;
+}
+
+/* Friends list item in centre panel */
+#friends-list .friend-entry {
+  padding:   0.4rem 0.75rem;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #eee;
+}
+
+/* Status bar at bottom */
+#status-bar {
+  background: var(--clr-status-bg);
+  height: var(--statusbar-h);
+  font-size: 0.82rem;
+  font-style: italic;
+  display:     flex;
+  align-items: center;
+  padding:     0.5rem 1rem;
+}
