@@ -30,13 +30,13 @@ function setStatus(message, isError = false) {
 function clearCentrePanel() {
   document.getElementById('profile-pic').src = 'resources/images/default.png';
   document.getElementById('profile-name').textContent = 'No Profile Selected';
-  document.getElementById('profile-status').textContent = '--';
-  document.getElementById('profile-quote').textContent = '--';
+  document.getElementById('profile-status').innerHTML = '&mdash;';
+  document.getElementById('profile-quote').innerHTML = '&mdash;';
   document.getElementById('friends-list').innerHTML = '';
   currentProfileId = null;
 }
 
-function displayProfile(profile, friends = []) {
+function displayProfile(profile, friends =[]) {
   document.getElementById('profile-pic').src = profile.picture || 'resources/images/default.png';
   document.getElementById('profile-name').textContent = profile.name;
   document.getElementById('profile-status').textContent = profile.status || '(no status)';
@@ -50,13 +50,13 @@ function renderFriendsList(friends) {
   const list = document.getElementById('friends-list');
   list.innerHTML = '';
   if (friends.length === 0) {
-    list.innerHTML = '<p class="text-muted small p-2">No friends yet.</p>';
+    list.innerHTML = '<div class="text-muted p-3 fst-italic">No friends yet.</div>';
     return;
   }
   friends.forEach(f => {
     const div = document.createElement('div');
     div.className = 'friend-entry';
-    div.textContent = f.profiles ? f.profiles.name : f.name; 
+    div.textContent = f.name; 
     list.appendChild(div);
   });
 }
@@ -67,9 +67,10 @@ function renderFriendsList(friends) {
 
 async function loadProfileList() {
   try {
+    // Fetch picture alongside ID and Name to display the thumbnails
     const { data, error } = await db
       .from('profiles')
-      .select('id, name')
+      .select('id, name, picture')
       .order('name', { ascending: true });
 
     if (error) throw error;
@@ -78,7 +79,7 @@ async function loadProfileList() {
     container.innerHTML = '';
 
     if (data.length === 0) {
-      container.innerHTML = '<p class="text-muted small fst-italic p-2">No profiles found.</p>';
+      container.innerHTML = '<p class="text-muted small fst-italic p-3">No profiles found.</p>';
       return;
     }
 
@@ -86,11 +87,18 @@ async function loadProfileList() {
       const row = document.createElement('div');
       row.className = 'profile-item';
       
+      const img = document.createElement('img');
+      img.className = 'list-thumb rounded-circle';
+      img.src = profile.picture || 'resources/images/default.png';
+      img.onerror = () => { img.src = 'resources/images/default.png'; }; // fallback
+      
       const span = document.createElement('span');
       span.textContent = profile.name;
       
       row.dataset.id = profile.id;
+      row.appendChild(img);
       row.appendChild(span);
+      
       row.addEventListener('click', () => selectProfile(profile.id));
       container.appendChild(row);
     });
@@ -114,20 +122,31 @@ async function selectProfile(profileId) {
 
     if (profileError) throw profileError;
 
-    // We join the profiles table to get the names of the friends
-    const { data: friends, error: friendsError } = await db
+    // Fetch bidirectional friendships matching the profileId
+    const { data: friendsRels, error: friendsError } = await db
       .from('friends')
-      .select('profile_id, friend_id, profiles!friends_friend_id_fkey(name)')
+      .select('profile_id, friend_id')
       .or(`profile_id.eq.${profileId},friend_id.eq.${profileId}`);
 
     if (friendsError) throw friendsError;
 
-    // Clean up the nested response structure for the render function
-    const formattedFriends = friends.map(f => {
-       return { name: f.profiles ? f.profiles.name : 'Unknown Friend' };
-    });
+    let friendsData =[];
+    if (friendsRels.length > 0) {
+      // Extract the opposing friend's UUID for each relationship
+      const friendIds = friendsRels.map(r => r.profile_id === profileId ? r.friend_id : r.profile_id);
+      
+      // Fetch the names of all valid friends
+      const { data: profilesData, error: profilesError } = await db
+        .from('profiles')
+        .select('name')
+        .in('id', friendIds)
+        .order('name', { ascending: true });
+        
+      if (profilesError) throw profilesError;
+      friendsData = profilesData;
+    }
 
-    displayProfile(profile, formattedFriends);
+    displayProfile(profile, friendsData);
 
   } catch (err) {
     setStatus(`Error selecting profile: ${err.message}`, true);
@@ -300,6 +319,7 @@ async function changePicture() {
     document.getElementById('profile-pic').src = newPicture;
     document.getElementById('input-picture').value = '';
     setStatus('Picture updated.');
+    await loadProfileList(); // Reload thumbnail list
   } catch (err) {
     setStatus(`Error updating picture: ${err.message}`, true);
   }
@@ -340,9 +360,12 @@ async function addFriend() {
       return;
     }
 
+    const pId = currentProfileId < friendId ? currentProfileId : friendId;
+    const fId = currentProfileId < friendId ? friendId : currentProfileId;
+
     const { error: insertError } = await db
       .from('friends')
-      .insert({ profile_id: currentProfileId, friend_id: friendId });
+      .insert({ profile_id: pId, friend_id: fId });
 
     if (insertError) {
       if (insertError.code === '23505') {
@@ -387,11 +410,14 @@ async function removeFriend() {
 
     const friendId = found[0].id;
 
+    const pId = currentProfileId < friendId ? currentProfileId : friendId;
+    const fId = currentProfileId < friendId ? friendId : currentProfileId;
+
     const { error: deleteError } = await db
       .from('friends')
       .delete()
-      .eq('profile_id', currentProfileId)
-      .eq('friend_id', friendId);
+      .eq('profile_id', pId)
+      .eq('friend_id', fId);
 
     if (deleteError) throw deleteError;
 
@@ -429,6 +455,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('input-name').addEventListener('keydown', e => { if (e.key === 'Enter') addProfile(); });
   document.getElementById('input-status').addEventListener('keydown', e => { if (e.key === 'Enter') changeStatus(); });
   document.getElementById('input-quote').addEventListener('keydown', e => { if (e.key === 'Enter') changeQuote(); });
+  document.getElementById('input-picture').addEventListener('keydown', e => { if (e.key === 'Enter') changePicture(); });
+  document.getElementById('input-friend').addEventListener('keydown', e => { if (e.key === 'Enter') addFriend(); });
 
   await loadProfileList();
   setStatus('Ready. Select a profile from the list or add a new one.');
