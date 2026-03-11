@@ -303,23 +303,58 @@ async function changePicture() {
     setStatus('Error: No profile is selected.', true);
     return;
   }
-  const newPicture = document.getElementById('input-picture').value.trim();
-  if (!newPicture) {
+  
+  const rawInput = document.getElementById('input-picture').value.trim();
+  if (!rawInput) {
     setStatus('Error: Picture field is empty.', true);
     return;
   }
+
+  // Clean the input: safely remove "resources/images/" or extensions if the user typed them by habit
+  const baseName = rawInput
+    .replace(/^resources\/images\//, '')
+    .replace(/\.(png|jpe?g)$/i, '');
+
+  const pngPath = `resources/images/${baseName}.png`;
+  const jpgPath = `resources/images/${baseName}.jpg`;
+
+  // Helper function to silently attempt loading an image to see if it exists
+  const checkImageExists = (url) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(url); // Image exists
+      img.onerror = () => resolve(null); // Image doesn't exist
+      img.src = url;
+    });
+  };
+
+  setStatus('Searching for image...', false);
+
+  // Search for the PNG first, then fallback to JPG
+  let validPath = await checkImageExists(pngPath);
+  if (!validPath) {
+    validPath = await checkImageExists(jpgPath);
+  }
+
+  // If neither exists, alert the user and abort the update
+  if (!validPath) {
+    setStatus(`Error: Could not find "${baseName}.png" or "${baseName}.jpg" in resources/images/.`, true);
+    return;
+  }
+
+  // If a valid image was found, proceed to update Supabase
   try {
     const { error } = await db
       .from('profiles')
-      .update({ picture: newPicture })
+      .update({ picture: validPath })
       .eq('id', currentProfileId);
 
     if (error) throw error;
 
-    document.getElementById('profile-pic').src = newPicture;
+    document.getElementById('profile-pic').src = validPath;
     document.getElementById('input-picture').value = '';
     setStatus('Picture updated.');
-    await loadProfileList(); // Reload thumbnail list
+    await loadProfileList(); // Reload thumbnail list on the left panel
   } catch (err) {
     setStatus(`Error updating picture: ${err.message}`, true);
   }
