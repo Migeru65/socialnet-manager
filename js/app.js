@@ -61,13 +61,21 @@ function renderFriendsList(friends) {
   });
 }
 
+// Helper to translate HTTP status codes into readable messages
+function diagnoseUploadStatus(status) {
+  if (status === 413) return "File too large. Maximum limit is 10 MB.";
+  if (status === 415) return "Unsupported file type.";
+  if (status === 405) return "Method not allowed. Use POST.";
+  if (status === 500) return "Server error during image compression.";
+  return "Unknown upload error.";
+}
+
 // ================================================================
 // Section 4: CRUD Functions
 // ================================================================
 
 async function loadProfileList() {
   try {
-    // Fetch picture alongside ID and Name to display the thumbnails
     const { data, error } = await db
       .from('profiles')
       .select('id, name, picture')
@@ -90,7 +98,7 @@ async function loadProfileList() {
       const img = document.createElement('img');
       img.className = 'list-thumb rounded-circle';
       img.src = profile.picture || 'resources/images/default.png';
-      img.onerror = () => { img.src = 'resources/images/default.png'; }; // fallback
+      img.onerror = () => { img.src = 'resources/images/default.png'; }; 
       
       const span = document.createElement('span');
       span.textContent = profile.name;
@@ -122,7 +130,6 @@ async function selectProfile(profileId) {
 
     if (profileError) throw profileError;
 
-    // Fetch bidirectional friendships matching the profileId
     const { data: friendsRels, error: friendsError } = await db
       .from('friends')
       .select('profile_id, friend_id')
@@ -132,10 +139,8 @@ async function selectProfile(profileId) {
 
     let friendsData =[];
     if (friendsRels.length > 0) {
-      // Extract the opposing friend's UUID for each relationship
       const friendIds = friendsRels.map(r => r.profile_id === profileId ? r.friend_id : r.profile_id);
       
-      // Fetch the names of all valid friends
       const { data: profilesData, error: profilesError } = await db
         .from('profiles')
         .select('name')
@@ -298,65 +303,68 @@ async function changeQuote() {
   }
 }
 
+// Vercel Blob Upload Integration
 async function changePicture() {
   if (!currentProfileId) {
     setStatus('Error: No profile is selected.', true);
     return;
   }
   
-  const rawInput = document.getElementById('input-picture').value.trim();
-  if (!rawInput) {
-    setStatus('Error: Picture field is empty.', true);
+  const fileInput = document.getElementById('input-picture-file');
+  const file = fileInput.files[0];
+  
+  if (!file) {
+    setStatus('Error: Please select an image file first.', true);
     return;
   }
 
-  // Clean the input: safely remove "resources/images/" or extensions if the user typed them by habit
-  const baseName = rawInput
-    .replace(/^resources\/images\//, '')
-    .replace(/\.(png|jpe?g)$/i, '');
+  setStatus('Uploading and compressing image...', false);
 
-  const pngPath = `resources/images/${baseName}.png`;
-  const jpgPath = `resources/images/${baseName}.jpg`;
+  const formData = new FormData();
+  formData.append("file", file);
 
-  // Helper function to silently attempt loading an image to see if it exists
-  const checkImageExists = (url) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(url); // Image exists
-      img.onerror = () => resolve(null); // Image doesn't exist
-      img.src = url;
-    });
-  };
-
-  setStatus('Searching for image...', false);
-
-  // Search for the PNG first, then fallback to JPG
-  let validPath = await checkImageExists(pngPath);
-  if (!validPath) {
-    validPath = await checkImageExists(jpgPath);
-  }
-
-  // If neither exists, alert the user and abort the update
-  if (!validPath) {
-    setStatus(`Error: Could not find "${baseName}.png" or "${baseName}.jpg" in resources/images/.`, true);
-    return;
-  }
-
-  // If a valid image was found, proceed to update Supabase
   try {
-    const { error } = await db
+    // POST request handles the multipart form data boundary automatically
+    const response = await fetch("/api/upload-avatar", {
+      method: "POST",
+      body: formData, 
+    });
+
+    const rawText = await response.text();
+    let result;
+    
+    // Safely parse the response avoiding HTML crash loops
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      const preview = rawText.slice(0, 200).replace(/\s+/g, " ").trim();
+      const hint = diagnoseUploadStatus(response.status);
+      throw new Error(`HTTP ${response.status} (not JSON). ${hint} | Response: "${preview}"`);
+    }
+
+    if (!response.ok) {
+      throw new Error(result.error || "Upload failed");
+    }
+
+    const newBlobUrl = result.url;
+
+    // Save the new public URL to the Supabase database
+    const { error: dbError } = await db
       .from('profiles')
-      .update({ picture: validPath })
+      .update({ picture: newBlobUrl })
       .eq('id', currentProfileId);
 
-    if (error) throw error;
+    if (dbError) throw dbError;
 
-    document.getElementById('profile-pic').src = validPath;
-    document.getElementById('input-picture').value = '';
-    setStatus('Picture updated.');
-    await loadProfileList(); // Reload thumbnail list on the left panel
-  } catch (err) {
-    setStatus(`Error updating picture: ${err.message}`, true);
+    document.getElementById('profile-pic').src = newBlobUrl;
+    setStatus('Picture successfully updated!');
+    await loadProfileList(); 
+
+  } catch (error) {
+    setStatus(`Error updating picture: ${error.message}`, true);
+  } finally {
+    // Clear the input so a user can re-upload the same file if needed
+    fileInput.value = ""; 
   }
 }
 
@@ -490,7 +498,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('input-name').addEventListener('keydown', e => { if (e.key === 'Enter') addProfile(); });
   document.getElementById('input-status').addEventListener('keydown', e => { if (e.key === 'Enter') changeStatus(); });
   document.getElementById('input-quote').addEventListener('keydown', e => { if (e.key === 'Enter') changeQuote(); });
-  document.getElementById('input-picture').addEventListener('keydown', e => { if (e.key === 'Enter') changePicture(); });
   document.getElementById('input-friend').addEventListener('keydown', e => { if (e.key === 'Enter') addFriend(); });
 
   await loadProfileList();
