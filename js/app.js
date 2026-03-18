@@ -303,7 +303,7 @@ async function changeQuote() {
   }
 }
 
-// Vercel Blob Upload Integration
+// Vercel Blob Upload & Direct URL Integration
 async function changePicture() {
   if (!currentProfileId) {
     setStatus('Error: No profile is selected.', true);
@@ -311,60 +311,77 @@ async function changePicture() {
   }
   
   const fileInput = document.getElementById('input-picture-file');
-  const file = fileInput.files[0];
+  const urlInput = document.getElementById('input-picture-url');
   
-  if (!file) {
-    setStatus('Error: Please select an image file first.', true);
+  const file = fileInput.files[0];
+  const pastedUrl = urlInput.value.trim();
+  
+  // Guard clause: ensure they provided at least one option
+  if (!file && !pastedUrl) {
+    setStatus('Error: Please select a file or paste a URL.', true);
     return;
   }
 
-  setStatus('Uploading and compressing image...', false);
+  let finalPictureUrl = "";
 
-  const formData = new FormData();
-  formData.append("file", file);
+  // Scenario A: User uploaded a physical file
+  if (file) {
+    setStatus('Uploading and compressing image...', false);
+    const formData = new FormData();
+    formData.append("file", file);
 
-  try {
-    // POST request handles the multipart form data boundary automatically
-    const response = await fetch("/api/upload-avatar", {
-      method: "POST",
-      body: formData, 
-    });
-
-    const rawText = await response.text();
-    let result;
-    
-    // Safely parse the response avoiding HTML crash loops
     try {
-      result = JSON.parse(rawText);
-    } catch {
-      const preview = rawText.slice(0, 200).replace(/\s+/g, " ").trim();
-      const hint = diagnoseUploadStatus(response.status);
-      throw new Error(`HTTP ${response.status} (not JSON). ${hint} | Response: "${preview}"`);
+      const response = await fetch("/api/upload-avatar", {
+        method: "POST",
+        body: formData, 
+      });
+
+      const rawText = await response.text();
+      let result;
+      
+      try {
+        result = JSON.parse(rawText);
+      } catch {
+        const preview = rawText.slice(0, 200).replace(/\s+/g, " ").trim();
+        const hint = diagnoseUploadStatus(response.status);
+        throw new Error(`HTTP ${response.status} (not JSON). ${hint} | Response: "${preview}"`);
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || "Upload failed");
+      }
+
+      finalPictureUrl = result.url;
+
+    } catch (uploadError) {
+      setStatus(`Error uploading picture: ${uploadError.message}`, true);
+      return; // Stop if the upload fails
     }
+  } 
+  // Scenario B: User pasted a direct link
+  else if (pastedUrl) {
+    finalPictureUrl = pastedUrl;
+  }
 
-    if (!response.ok) {
-      throw new Error(result.error || "Upload failed");
-    }
-
-    const newBlobUrl = result.url;
-
-    // Save the new public URL to the Supabase database
+  // Final Step: Save the resulting URL to Supabase
+  try {
     const { error: dbError } = await db
       .from('profiles')
-      .update({ picture: newBlobUrl })
+      .update({ picture: finalPictureUrl })
       .eq('id', currentProfileId);
 
     if (dbError) throw dbError;
 
-    document.getElementById('profile-pic').src = newBlobUrl;
+    document.getElementById('profile-pic').src = finalPictureUrl;
     setStatus('Picture successfully updated!');
     await loadProfileList(); 
 
-  } catch (error) {
-    setStatus(`Error updating picture: ${error.message}`, true);
+  } catch (dbError) {
+    setStatus(`Error updating database: ${dbError.message}`, true);
   } finally {
-    // Clear the input so a user can re-upload the same file if needed
+    // Clear both inputs so the form is ready for the next action
     fileInput.value = ""; 
+    urlInput.value = "";
   }
 }
 
