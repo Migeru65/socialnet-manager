@@ -316,54 +316,51 @@ async function changePicture() {
   const file = fileInput.files[0];
   const pastedUrl = urlInput.value.trim();
   
-  // Guard clause: ensure they provided at least one option
   if (!file && !pastedUrl) {
     setStatus('Error: Please select a file or paste a URL.', true);
     return;
   }
 
   let finalPictureUrl = "";
+  const formData = new FormData();
 
-  // Scenario A: User uploaded a physical file
+  // Route both physical files and pasted URLs to the backend
   if (file) {
     setStatus('Uploading and compressing image...', false);
-    const formData = new FormData();
     formData.append("file", file);
-
-    try {
-      const response = await fetch("/api/upload-avatar", {
-        method: "POST",
-        body: formData, 
-      });
-
-      const rawText = await response.text();
-      let result;
-      
-      try {
-        result = JSON.parse(rawText);
-      } catch {
-        const preview = rawText.slice(0, 200).replace(/\s+/g, " ").trim();
-        const hint = diagnoseUploadStatus(response.status);
-        throw new Error(`HTTP ${response.status} (not JSON). ${hint} | Response: "${preview}"`);
-      }
-
-      if (!response.ok) {
-        throw new Error(result.error || "Upload failed");
-      }
-
-      finalPictureUrl = result.url;
-
-    } catch (uploadError) {
-      setStatus(`Error uploading picture: ${uploadError.message}`, true);
-      return; // Stop if the upload fails
-    }
-  } 
-  // Scenario B: User pasted a direct link
-  else if (pastedUrl) {
-    finalPictureUrl = pastedUrl;
+  } else if (pastedUrl) {
+    setStatus('Fetching and processing internet image...', false);
+    formData.append("imageUrl", pastedUrl);
   }
 
-  // Final Step: Save the resulting URL to Supabase
+  try {
+    const response = await fetch("/api/upload-avatar", {
+      method: "POST",
+      body: formData, 
+    });
+
+    const rawText = await response.text();
+    let result;
+    
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      const preview = rawText.slice(0, 200).replace(/\s+/g, " ").trim();
+      const hint = diagnoseUploadStatus(response.status);
+      throw new Error(`HTTP ${response.status} (not JSON). ${hint} | Response: "${preview}"`);
+    }
+
+    if (!response.ok) {
+      throw new Error(result.error || "Upload failed");
+    }
+
+    finalPictureUrl = result.url;
+
+  } catch (uploadError) {
+    setStatus(`Error processing picture: ${uploadError.message}`, true);
+    return; 
+  }
+
   try {
     const { error: dbError } = await db
       .from('profiles')
@@ -379,7 +376,6 @@ async function changePicture() {
   } catch (dbError) {
     setStatus(`Error updating database: ${dbError.message}`, true);
   } finally {
-    // Clear both inputs so the form is ready for the next action
     fileInput.value = ""; 
     urlInput.value = "";
   }
